@@ -44,6 +44,11 @@ pnpm lint               # eslint
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-## License
+## License & attribution
 
-[GPL-3.0](LICENSE).
+FastAF is licensed under [GPL-3.0](LICENSE).
+
+FastAF is a modified version of the open-source project **NeZha**
+(https://github.com/hanshuaikang/nezha) by Hanshuaikang and contributors, also
+distributed under the GPL-3.0. See [NOTICE.md](NOTICE.md) for the full
+attribution and modification notice.

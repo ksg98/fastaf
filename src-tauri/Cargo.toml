@@ -3,6 +3,7 @@ name = "fastaf"
 version = "0.0.1"
 description = "An agent-first vibe coding application"
 authors = ["ksg98"]
+license = "GPL-3.0-only"
 edition = "2021"
 repository = "https://github.com/ksg98/fastaf"
 homepage = "https://github.com/ksg98/fastaf"

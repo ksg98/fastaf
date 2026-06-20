@@ -34,6 +34,11 @@ This is the first public release.
      xattr -dr com.apple.quarantine /Applications/FastAF.app
      ```
 
-## License
+## License & attribution
 
-[GPL-3.0](LICENSE).
+FastAF is licensed under [GPL-3.0](LICENSE).
+
+FastAF is a modified version of the open-source project **NeZha**
+(https://github.com/hanshuaikang/nezha) by Hanshuaikang and contributors, also
+distributed under the GPL-3.0. See `NOTICE.md` for the full attribution and
+modification notice.

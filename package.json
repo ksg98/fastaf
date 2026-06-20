@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "description": "An Agent-First Application For Vibe Coding",
   "author": "ksg98",
+  "license": "GPL-3.0-only",
   "homepage": "https://github.com/ksg98/fastaf",
   "repository": {
     "type": "git",
