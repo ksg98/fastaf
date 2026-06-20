@@ -1,0 +1,154 @@
+use std::fs;
+use std::path::Path;
+
+use crate::storage::atomic_write;
+
+const DEFAULT_COMMIT_MESSAGE_TIMEOUT_SECS: u64 = 15;
+
+const DEFAULT_CONFIG: &str = r#"# FastAF project configuration
+# https://github.com/ksg98/fastaf
+
+[agent]
+# Default agent to use for new tasks: "claude" or "codex"
+default = "claude"
+# Default permission mode for new tasks: "ask", "auto_edit", or "full_access"
+default_permission_mode = "ask"
+# Text automatically prepended (followed by a newline) to every task prompt
+prompt_prefix = ""
+
+[git]
+# Prompt used when generating commit messages via the AI agent
+commit_prompt = "You are a git commit message generator. Based on the provided git diff, write a concise and descriptive commit message. Follow these rules:\n1. Use the imperative mood (e.g., \"Add feature\" not \"Added feature\")\n2. First line: type(scope): short summary (50 chars or less)\n   Types: feat, fix, docs, style, refactor, test, chore\n3. If needed, add a blank line then a brief body explaining what and why\n4. Output ONLY the commit message text, no explanations or markdown formatting"
+# Timeout in seconds when generating commit messages via the AI agent
+commit_message_timeout_secs = 15
+"#;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct AgentConfig {
+    pub default: String,
+    #[serde(default = "default_permission_mode")]
+    pub default_permission_mode: String,
+    #[serde(default)]
+    pub prompt_prefix: String,
+}
+
+fn default_permission_mode() -> String {
+    "ask".to_string()
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct GitConfig {
+    pub commit_prompt: String,
+    #[serde(default = "default_commit_message_timeout_secs")]
+    pub commit_message_timeout_secs: u64,
+}
+
+fn default_commit_message_timeout_secs() -> u64 {
+    DEFAULT_COMMIT_MESSAGE_TIMEOUT_SECS
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct ProjectConfig {
+    pub agent: AgentConfig,
+    pub git: GitConfig,
+}
+
+impl Default for ProjectConfig {
+    fn default() -> Self {
+        ProjectConfig {
+            agent: AgentConfig {
+                default: "claude".to_string(),
+                default_permission_mode: "ask".to_string(),
+                prompt_prefix: String::new(),
+            },
+            git: GitConfig {
+                commit_prompt: "You are a git commit message generator. Based on the provided git diff, write a concise and descriptive commit message. Follow these rules:\n1. Use the imperative mood (e.g., \"Add feature\" not \"Added feature\")\n2. First line: type(scope): short summary (50 chars or less)\n   Types: feat, fix, docs, style, refactor, test, chore\n3. If needed, add a blank line then a brief body explaining what and why\n4. Output ONLY the commit message text, no explanations or markdown formatting".to_string(),
+                commit_message_timeout_secs: default_commit_message_timeout_secs(),
+            },
+        }
+    }
+}
+
+/// Creates `.fastaf/config.toml` in the project directory if it doesn't already exist.
+/// Also ensures `.fastaf/attachments/` exists.
+/// Returns the parsed config.
+#[tauri::command]
+pub fn init_project_config(project_path: String) -> Result<ProjectConfig, String> {
+    let fastaf_dir = Path::new(&project_path).join(".fastaf");
+    let config_path = fastaf_dir.join("config.toml");
+    let attachments_dir = fastaf_dir.join("attachments");
+
+    fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
+
+    if !config_path.exists() {
+        fs::write(&config_path, DEFAULT_CONFIG).map_err(|e| e.to_string())?;
+    }
+
+    let raw = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let config: ProjectConfig = toml::from_str(&raw).unwrap_or_default();
+
+    Ok(config)
+}
+
+/// Reads `.fastaf/config.toml` from the project directory.
+/// Returns the default config if the file doesn't exist yet.
+#[tauri::command]
+pub fn read_project_config(project_path: String) -> Result<ProjectConfig, String> {
+    let config_path = Path::new(&project_path).join(".fastaf").join("config.toml");
+    if !config_path.exists() {
+        return Ok(ProjectConfig::default());
+    }
+    let raw = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let config: ProjectConfig = toml::from_str(&raw).unwrap_or_default();
+    Ok(config)
+}
+
+/// Writes updated config to `.fastaf/config.toml`, creating the directory if needed.
+#[tauri::command]
+pub fn write_project_config(project_path: String, config: ProjectConfig) -> Result<(), String> {
+    let fastaf_dir = Path::new(&project_path).join(".fastaf");
+    fs::create_dir_all(&fastaf_dir).map_err(|e| e.to_string())?;
+    let config_path = fastaf_dir.join("config.toml");
+    let raw = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    atomic_write(&config_path, &raw)
+}
+
+fn home_dir() -> Result<std::path::PathBuf, String> {
+    crate::platform::home_dir()
+        .ok_or_else(|| "Cannot find home directory".to_string())
+}
+
+fn agent_config_path(agent: &str) -> Result<std::path::PathBuf, String> {
+    let home = home_dir()?;
+    match agent {
+        "claude" => Ok(home.join(".claude").join("settings.json")),
+        "codex" => Ok(home.join(".codex").join("config.toml")),
+        _ => Err(format!("Unknown agent: {}", agent)),
+    }
+}
+
+#[tauri::command]
+pub fn get_agent_config_file_path(agent: String) -> Result<String, String> {
+    Ok(agent_config_path(&agent)?.to_string_lossy().into_owned())
+}
+
+/// Reads the local settings file for the given agent ("claude" or "codex").
+/// Returns None if the file doesn't exist.
+#[tauri::command]
+pub fn read_agent_config_file(agent: String) -> Result<Option<String>, String> {
+    let path = agent_config_path(&agent)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(&path).map(Some).map_err(|e| e.to_string())
+}
+
+/// Writes raw content back to the agent's local settings file.
+#[tauri::command]
+pub fn write_agent_config_file(agent: String, content: String) -> Result<(), String> {
+    let path = agent_config_path(&agent)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    atomic_write(&path, &content)
+}

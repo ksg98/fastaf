@@ -1,0 +1,320 @@
+/* Design tokens: light theme */
+:root {
+  --bg-root: hsl(240deg 6% 99.4%);
+  --bg-shell: hsl(240deg 6% 99.4%);
+  --bg-titlebar: hsl(240deg 6% 99.4%);
+  --bg-sidebar: #fdfdfd;
+  --bg-sidebar-elevated: #fafafa;
+  --bg-panel: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: hsl(240deg 6% 97.7%);
+  --bg-selected: rgba(15, 23, 42, 0.08);
+  --bg-subtle: hsl(240deg 6% 99.4%);
+  --bg-input: #ffffff;
+  --bg: var(--bg-root);
+
+  --border-dim: rgba(15, 23, 42, 0.08);
+  --border-medium: rgba(15, 23, 42, 0.14);
+  --border-strong: rgba(99, 122, 163, 0.24);
+  --border-focus: #20242e;
+  --border: var(--border-dim);
+
+  --text-primary: #171b24;
+  --text-secondary: #414857;
+  --text-muted: #69758a;
+  --text-hint: #9aa3b2;
+  --fg-on-accent: #ffffff;
+  --control-active-bg: rgba(15, 23, 42, 0.08);
+  --control-active-fg: #171b24;
+  --control-selected-bg: #20242e;
+  --control-selected-fg: #ffffff;
+  --control-knob-bg: #ffffff;
+  --primary-action-bg: #20242e;
+  --primary-action-fg: #ffffff;
+  --primary-action-hover: #111827;
+
+  --accent: #5d7cff;
+  --accent-strong: #4467f5;
+  --accent-soft: rgba(93, 124, 255, 0.28);
+  --accent-hover: #4d6ff2;
+  --accent-subtle: rgba(93, 124, 255, 0.12);
+
+  --brand-mark-gradient: linear-gradient(145deg, #13213f, #1676d2 58%, #2fb7d3 100%);
+  --brand-mark-glow: rgba(22, 118, 210, 0.14);
+  --brand-mark-inner-bg: rgba(9, 12, 18, 0.82);
+  --brand-mark-fg: #ffffff;
+  --badge-muted-bg: rgba(123, 139, 166, 0.14);
+
+  --icon-folder: #8f98a7;
+  --icon-folder-open: #737d8b;
+  --icon-folder-root: #7d8795;
+  --icon-file-default: #94a3b8;
+  --icon-file-ignored: #8b94a3;
+  --icon-file-config: #6b7280;
+  --icon-file-docker: #2496ed;
+  --icon-file-build: #6d8086;
+  --icon-file-ruby: #cc342d;
+  --icon-file-ts: #3178c6;
+  --icon-file-js: #d6a500;
+  --icon-file-json: #d97706;
+  --icon-file-rust: #ce422b;
+  --icon-file-html: #e34c26;
+  --icon-file-css: #264de4;
+  --icon-file-md: #7c3aed;
+  --icon-file-yaml: #ef4444;
+  --icon-file-toml: #9c4221;
+  --icon-file-python: #3572a5;
+  --icon-file-go: #00add8;
+  --icon-file-shell: #4eaa25;
+  --icon-file-svg: #ff9800;
+  --icon-file-image: #16a34a;
+  --icon-file-wasm: #654ff0;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--danger);
+  --usage-good: #22c55e;
+  --usage-warn: #f59e0b;
+  --usage-danger: #ef4444;
+  --usage-codex: #a78bfa;
+
+  --warning-surface: rgba(234, 179, 8, 0.1);
+  --warning-code-bg: rgba(234, 179, 8, 0.15);
+  --warning-border: rgba(234, 179, 8, 0.3);
+  --danger-surface: rgba(248, 81, 73, 0.1);
+  --danger-border: rgba(248, 81, 73, 0.3);
+  --danger-fg: #f85149;
+  --star-fg: #c8922a;
+  --inverse-muted: rgba(255, 255, 255, 0.75);
+
+  --diff-add-bg: rgba(46, 160, 67, 0.12);
+  --diff-add-fg: #1f8f46;
+  --diff-add-marker-bg: rgba(46, 160, 67, 0.22);
+  --diff-delete-bg: rgba(248, 81, 73, 0.12);
+  --diff-delete-fg: #c7352f;
+  --diff-delete-marker-bg: rgba(248, 81, 73, 0.22);
+  --diff-hunk-bg: rgba(88, 166, 255, 0.08);
+  --diff-hunk-fg: #2563eb;
+  --diff-meta-fg: #9aa3b2;
+  --diff-gutter-bg: rgba(15, 23, 42, 0.02);
+  --diff-empty-bg: rgba(15, 23, 42, 0.025);
+  --diff-status-added-fg: #1f8f46;
+  --diff-status-added-bg: rgba(46, 160, 67, 0.14);
+  --diff-status-deleted-fg: #c7352f;
+  --diff-status-deleted-bg: rgba(248, 81, 73, 0.14);
+  --diff-status-renamed-fg: #2563eb;
+  --diff-status-renamed-bg: rgba(88, 166, 255, 0.14);
+  --diff-status-modified-fg: #a46a0a;
+  --diff-status-modified-bg: rgba(214, 150, 32, 0.14);
+
+  --code-line-number: rgba(128, 128, 128, 0.35);
+  --code-line-number-hover: rgba(128, 128, 128, 0.6);
+  --code-line-divider: rgba(128, 128, 128, 0.1);
+  --code-line-hover-bg: rgba(128, 128, 128, 0.05);
+  --image-checker-bg: rgba(128, 128, 128, 0.06);
+
+  --overlay-bg: rgba(0, 0, 0, 0.45);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-popover: 0 8px 32px rgba(0, 0, 0, 0.22);
+  --shadow-drawer: 4px 0 16px rgba(0, 0, 0, 0.12);
+  --shadow-compose: 0 6px 18px rgba(15, 23, 42, 0.035);
+  --shadow-control: 0 1px 0 rgba(0, 0, 0, 0.08);
+  --shadow-switch-thumb: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.24), 0 1px 4px rgba(0, 0, 0, 0.14);
+  --shadow-media: 0 16px 40px rgba(0, 0, 0, 0.25);
+  --agent-badge-filter: none;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --font-ui: "SF Pro Display", "IBM Plex Sans", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* Design tokens: eye-care theme (warm sepia, low-contrast) */
+html.eyecare {
+  --bg-root: #f5ecd7;
+  --bg-shell: #f5ecd7;
+  --bg-titlebar: #f5ecd7;
+  --bg-sidebar: #f9f1dc;
+  --bg-sidebar-elevated: #f3e9cf;
+  --bg-panel: #fbf5e4;
+  --bg-card: #fdf9ec;
+  --bg-hover: #ede2c4;
+  --bg-selected: rgba(101, 84, 51, 0.12);
+  --bg-subtle: #f1e7cd;
+  --bg-input: #fdf9ec;
+
+  --border-dim: rgba(101, 84, 51, 0.12);
+  --border-medium: rgba(101, 84, 51, 0.2);
+  --border-strong: rgba(101, 84, 51, 0.32);
+  --border-focus: #5a4a30;
+
+  --text-primary: #3f3724;
+  --text-secondary: #5a4f37;
+  --text-muted: #7a6c4f;
+  --text-hint: #a89876;
+  --control-active-bg: rgba(101, 84, 51, 0.12);
+  --control-active-fg: #3f3724;
+  --control-selected-bg: #5a4a30;
+  --control-selected-fg: #fdf9ec;
+  --control-knob-bg: #fdf9ec;
+  --primary-action-bg: #5a4a30;
+  --primary-action-fg: #fdf9ec;
+  --primary-action-hover: #463822;
+
+  --accent: #b07b3e;
+  --accent-strong: #95612a;
+  --accent-soft: rgba(176, 123, 62, 0.32);
+  --accent-hover: #95612a;
+  --accent-subtle: rgba(176, 123, 62, 0.14);
+
+  /* Keep the brand mark blue; don't let the eye-care theme turn it beige/sepia (fall back to the blue defined on :root) */
+
+  --badge-muted-bg: rgba(101, 84, 51, 0.16);
+
+  --diff-gutter-bg: rgba(101, 84, 51, 0.03);
+  --diff-empty-bg: rgba(101, 84, 51, 0.03);
+
+  --code-line-number: rgba(101, 84, 51, 0.4);
+  --code-line-number-hover: rgba(101, 84, 51, 0.65);
+  --code-line-divider: rgba(101, 84, 51, 0.12);
+  --code-line-hover-bg: rgba(101, 84, 51, 0.06);
+  --image-checker-bg: rgba(101, 84, 51, 0.08);
+}
+
+/* Design tokens: dark theme */
+html.dark {
+  --bg-root: #1d212a;
+  --bg-shell: #262b36;
+  --bg-titlebar: #2b313e;
+  --bg-sidebar: #242a35;
+  --bg-sidebar-elevated: #202631;
+  --bg-panel: #2b313d;
+  --bg-card: #313847;
+  --bg-hover: #394154;
+  --bg-selected: #34446d;
+  --bg-subtle: #343b4a;
+  --bg-input: #343b4a;
+
+  --border-dim: rgba(255, 255, 255, 0.07);
+  --border-medium: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(141, 163, 255, 0.3);
+  --border-focus: #f1f4fb;
+
+  --text-primary: #f1f4fb;
+  --text-secondary: #d6dbe8;
+  --text-muted: #a4adc2;
+  --text-hint: #727b8f;
+  --control-active-bg: rgba(255, 255, 255, 0.12);
+  --control-active-fg: #f1f4fb;
+  --control-selected-bg: rgba(255, 255, 255, 0.16);
+  --control-selected-fg: #f1f4fb;
+  --control-knob-bg: #ffffff;
+  --primary-action-bg: #f1f4fb;
+  --primary-action-fg: #171b24;
+  --primary-action-hover: #ffffff;
+
+  --accent: #7f9aff;
+  --accent-strong: #6987ff;
+  --accent-soft: rgba(127, 154, 255, 0.34);
+  --accent-hover: #6f8eff;
+  --accent-subtle: rgba(127, 154, 255, 0.14);
+
+  --icon-folder: #8f98a7;
+  --icon-folder-open: #a0a9b8;
+  --icon-folder-root: #9aa3b2;
+  --icon-file-default: #94a3b8;
+  --icon-file-ignored: #6b7280;
+  --icon-file-config: #8b94a3;
+  --icon-file-docker: #38bdf8;
+  --icon-file-build: #94a3b8;
+  --icon-file-ruby: #f87171;
+  --icon-file-ts: #60a5fa;
+  --icon-file-js: #facc15;
+  --icon-file-json: #f59e0b;
+  --icon-file-rust: #fb7185;
+  --icon-file-html: #fb923c;
+  --icon-file-css: #818cf8;
+  --icon-file-md: #a78bfa;
+  --icon-file-yaml: #f87171;
+  --icon-file-toml: #d97757;
+  --icon-file-python: #7dd3fc;
+  --icon-file-go: #22d3ee;
+  --icon-file-shell: #86efac;
+  --icon-file-svg: #fbbf24;
+  --icon-file-image: #4ade80;
+  --icon-file-wasm: #a78bfa;
+
+  --success: #3dd68c;
+  --warning: #f5a623;
+  --danger: #ff5555;
+  --warning-code-bg: rgba(245, 166, 35, 0.16);
+  --usage-good: #4ade80;
+  --usage-warn: #fbbf24;
+  --usage-danger: #f87171;
+  --usage-codex: #c4b5fd;
+
+  --danger-fg: #f85149;
+  --diff-add-fg: #3fb950;
+  --diff-add-marker-bg: rgba(46, 160, 67, 0.28);
+  --diff-delete-fg: #f85149;
+  --diff-delete-marker-bg: rgba(248, 81, 73, 0.3);
+  --diff-hunk-fg: #79c0ff;
+  --diff-meta-fg: #727b8f;
+  --diff-gutter-bg: rgba(255, 255, 255, 0.02);
+  --diff-empty-bg: rgba(255, 255, 255, 0.02);
+  --diff-status-added-fg: #3fb950;
+  --diff-status-added-bg: rgba(46, 160, 67, 0.2);
+  --diff-status-deleted-fg: #ff7070;
+  --diff-status-deleted-bg: rgba(248, 81, 73, 0.22);
+  --diff-status-renamed-fg: #79c0ff;
+  --diff-status-renamed-bg: rgba(88, 166, 255, 0.18);
+  --diff-status-modified-fg: #e8b23e;
+  --diff-status-modified-bg: rgba(234, 179, 8, 0.18);
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.22);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-compose: 0 6px 18px rgba(0, 0, 0, 0.18);
+  --shadow-popover: 0 8px 32px rgba(0, 0, 0, 0.55);
+  --shadow-drawer: 4px 0 16px rgba(0, 0, 0, 0.4);
+  --shadow-control: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --shadow-switch-thumb: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.55), 0 1px 4px rgba(0, 0, 0, 0.35);
+  --shadow-media: 0 16px 40px rgba(0, 0, 0, 0.6);
+  --agent-badge-filter: brightness(0) invert(1) opacity(0.7);
+}
+
+/* Design tokens: midnight dark theme (neutral near-black).
+   Layered on top of `html.dark` (the element carries both classes), so this
+   block only overrides the midnight-specific deltas — near-black surfaces
+   (#1A1B1D files & terminal) and #222427 menu/borders — and inherits the rest
+   of the dark palette. Must stay AFTER `html.dark` to win at equal specificity. */
+html.midnight {
+  --bg-root: #1a1b1d;
+  --bg-shell: #1a1b1d;
+  --bg-titlebar: #1a1b1d;
+  --bg-sidebar: #1a1b1d;
+  --bg-sidebar-elevated: #1f2123;
+  --bg-panel: #1a1b1d;
+  --bg-card: #222427;
+  --bg-hover: #26282b;
+  --bg-selected: #2f3338;
+  --bg-subtle: #1f2123;
+  --bg-input: #222427;
+
+  --border-dim: #222427;
+  --border-medium: #2c2f33;
+  --border-strong: #3a3e44;
+  --border-focus: #e6e6e6;
+
+  --code-line-hover-bg: rgba(255, 255, 255, 0.04);
+  --image-checker-bg: rgba(255, 255, 255, 0.04);
+}
