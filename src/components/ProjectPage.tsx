@@ -268,16 +268,24 @@ export function ProjectPage({
     [handleFileSelect, openRightPanel],
   );
 
-  // Only mount the xterm instance for the currently selected task; other tasks are serialized via snapshot and unmounted.
-  // This keeps only 1 WebGL context alive at a time, avoiding GPU memory accumulation after long runs.
+  // Keep live shell terminals mounted even when not selected: their PTYs are killed on unmount
+  // (ShellTerminalInstance's cleanup calls kill_shell), so unmounting would restart the shell from
+  // scratch on the next visit. Agent tasks instead serialize via snapshot and are unmounted, keeping
+  // only the selected one's WebGL context alive to avoid GPU memory accumulation after long runs.
   useEffect(() => {
     if (selectedTaskId && !isNewTask) {
       setMountedTaskIds((prev) => {
-        if (prev.size === 1 && prev.has(selectedTaskId)) return prev;
-        return new Set([selectedTaskId]);
+        const next = new Set<string>();
+        for (const id of prev) {
+          const task = projectTasks.find((t) => t.id === id);
+          if (task && (task.kind ?? "shell") === "shell") next.add(id);
+        }
+        next.add(selectedTaskId);
+        if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
+        return next;
       });
     }
-  }, [selectedTaskId, isNewTask]);
+  }, [selectedTaskId, isNewTask, projectTasks]);
 
   // When the diff viewer opens/closes, auto-link the task panel's collapsed state, but sync only once
   // at the moment of crossing "no diff → diff" or "diff → no diff". The user manually expanding/collapsing
