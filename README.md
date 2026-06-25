@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/assets/app-logo.png" alt="FastAF logo" width="120" height="120" />
+</p>
+
 <h1 align="center">FastAF</h1>
 
 <p align="center">A lightweight, cross-platform desktop IDE built for the AI-agent era.</p>

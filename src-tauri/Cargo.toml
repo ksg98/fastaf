@@ -1,6 +1,6 @@
 [package]
 name = "fastaf"
-version = "0.0.1"
+version = "0.0.2"
 description = "An agent-first vibe coding application"
 authors = ["ksg98"]
 license = "GPL-3.0-only"
