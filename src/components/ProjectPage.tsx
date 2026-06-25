@@ -208,7 +208,20 @@ export function ProjectPage({
   const [taskPanelCollapsed, setTaskPanelCollapsed] = useState(false);
   const [mountedTaskIds, setMountedTaskIds] = useState<Set<string>>(() => new Set());
   const shellRef = useRef<ShellTerminalPanelHandle>(null);
+  // Projects a terminal can be opened in: the current one first, then the rest, de-duped.
+  const availableProjects = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Project[] = [];
+    for (const p of [project, ...allProjects, ...otherProjects]) {
+      if (p && !seen.has(p.id)) {
+        seen.add(p.id);
+        list.push(p);
+      }
+    }
+    return list;
+  }, [project, allProjects, otherProjects]);
   const pendingCmdRef = useRef<string | null>(null);
+  const pendingSplitRef = useRef(false);
   const prevHadDiffRef = useRef(false);
   const newTaskDraftRef = useRef<NewTaskDraft | null>(null);
   const handleCacheNewTaskDraft = useCallback((draft: NewTaskDraft | null) => {
@@ -325,7 +338,22 @@ export function ProjectPage({
       shellRef.current?.sendCommand(pendingCmdRef.current);
       pendingCmdRef.current = null;
     }
+    if (pendingSplitRef.current) {
+      shellRef.current?.toggleSplit();
+      pendingSplitRef.current = false;
+    }
   }, []);
+
+  // Split view: toggle the terminal dock between a single pane and a 2-pane split,
+  // opening it first if it's closed.
+  const handleToggleSplit = useCallback(() => {
+    if (showShellTerminal && shellRef.current) {
+      shellRef.current.toggleSplit();
+    } else {
+      pendingSplitRef.current = true;
+      setShowShellTerminal(true);
+    }
+  }, [showShellTerminal]);
 
   const handleNewTask = useCallback(() => {
     clearFileAndDiff();
@@ -454,6 +482,7 @@ export function ProjectPage({
         onSelectActiveTask={handleSelectTask}
         onOpenTaskInProject={onOpenTaskInProject}
         onNewTerminal={onNewTerminalInProject}
+        onToggleSplit={handleToggleSplit}
         onNewAgent={(pid) => (pid === project.id ? handleNewTask() : onNewTaskInProject(pid))}
         onRenameProject={onRenameProject}
         onRemoveProject={onRemoveProject}
@@ -608,6 +637,8 @@ export function ProjectPage({
                       fill
                       projectPath={project.path}
                       projectId={task.id}
+                      projectName={project.name}
+                      projects={availableProjects}
                       isActive={visible && isVisible}
                       onClose={() => onDeleteTask(task.id)}
                       themeVariant={themeVariant}
@@ -651,6 +682,8 @@ export function ProjectPage({
             ref={shellRef}
             projectPath={project.path}
             projectId={project.id}
+            projectName={project.name}
+            projects={availableProjects}
             isActive={visible}
             onClose={() => setShowShellTerminal(false)}
             themeVariant={themeVariant}

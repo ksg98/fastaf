@@ -1,5 +1,13 @@
 import type React from "react";
-import { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerm } from "@xterm/xterm";
@@ -22,7 +30,20 @@ import {
   refreshTerminalDisplay,
 } from "./terminalShared";
 import { attachLinuxIMEFix, attachMacWebKitShiftInputFix } from "./terminalInputFix";
-import { Plus, Terminal as TerminalIcon, Trash2, X, Columns2 } from "lucide-react";
+import {
+  Plus,
+  Terminal as TerminalIcon,
+  Trash2,
+  X,
+  Columns2,
+  Square,
+  Grid2x2,
+  Grid3x3,
+  LayoutGrid,
+  Folder,
+  Check,
+} from "lucide-react";
+import * as Popover from "@radix-ui/react-popover";
 import { useI18n } from "../i18n";
 import "@xterm/xterm/css/xterm.css";
 
@@ -33,20 +54,37 @@ interface ShellOutputEvent {
 
 export interface ShellTerminalPanelHandle {
   sendCommand: (cmd: string) => void;
+  /** Toggle the terminal area between a single pane and a 2-pane split. */
+  toggleSplit: () => void;
 }
 
 interface ShellTerminalInstanceHandle {
   sendCommand: (cmd: string) => void;
 }
 
+/** Minimal project shape the terminal panel needs to open shells across projects. */
+export interface ShellProject {
+  id: string;
+  name: string;
+  path: string;
+}
+
 interface ShellSession {
   id: string;
   title: string;
+  /** The project this terminal runs in. Terminals can come from different projects. */
+  projectId: string;
+  projectPath: string;
+  projectName: string;
 }
 
 interface Props {
   projectPath: string;
   projectId: string;
+  /** Display name of the current/default project (used for new terminals opened here). */
+  projectName: string;
+  /** All projects the user can open a terminal in. Defaults to just the current project. */
+  projects?: ShellProject[];
   isActive?: boolean;
   onClose: () => void;
   themeVariant: ThemeVariant;
@@ -59,10 +97,126 @@ interface Props {
   fill?: boolean;
 }
 
-function createShellSession(projectId: string, index: number): ShellSession {
+/** Max terminals that can tile at once (a 3×3 grid). */
+const MAX_GRID_PANES = 9;
+
+/** Preset pane counts offered by the grid selector. */
+const GRID_PRESETS: { count: number; Icon: typeof Square }[] = [
+  { count: 1, Icon: Square },
+  { count: 2, Icon: Columns2 },
+  { count: 4, Icon: Grid2x2 },
+  { count: 6, Icon: LayoutGrid },
+  { count: 9, Icon: Grid3x3 },
+];
+
+const GRID_LAYOUT_LS_KEY = "fastaf:terminalGridLayout";
+
+const addShellBtnStyle: React.CSSProperties = {
+  width: 20,
+  height: 20,
+  borderRadius: 4,
+  border: "none",
+  background: "transparent",
+  color: "var(--text-secondary)",
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const projectMenuContentStyle: React.CSSProperties = {
+  minWidth: 180,
+  maxWidth: 280,
+  padding: 4,
+  background: "var(--bg-panel)",
+  border: "1px solid var(--border-medium)",
+  borderRadius: 8,
+  boxShadow: "var(--shadow-md)",
+  zIndex: 50,
+};
+
+const projectMenuHeaderStyle: React.CSSProperties = {
+  padding: "5px 8px 6px",
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  color: "var(--text-hint)",
+};
+
+const projectMenuItemStyle: React.CSSProperties = {
+  width: "100%",
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "6px 8px",
+  borderRadius: 6,
+  border: "none",
+  background: "transparent",
+  color: "var(--text-primary)",
+  fontSize: 12.5,
+  fontWeight: 500,
+  cursor: "pointer",
+  textAlign: "left",
+  outline: "none",
+};
+
+/**
+ * Map the number of shown terminals to a grid spec. The grid is derived entirely
+ * from how many shells are shown, so the preset buttons and the per-terminal
+ * "show in split" toggle both feed the same layout.
+ *
+ * `cols` is the number of column tracks; `spans[i]` is how many tracks the i-th
+ * shown pane occupies. Most layouts are uniform (span 1), but odd counts use
+ * non-uniform shapes so there are no awkward thin columns:
+ *   3 → 2 on top, 1 full-width below      5 → 3 on top, 2 below
+ */
+function gridSpecFor(count: number): { cols: number; rows: number; spans: number[] } {
+  const n = Math.max(1, Math.min(MAX_GRID_PANES, count));
+  switch (n) {
+    case 1:
+      return { cols: 1, rows: 1, spans: [1] };
+    case 2:
+      return { cols: 2, rows: 1, spans: [1, 1] };
+    case 3:
+      // 2 on top, 1 spanning the full width below.
+      return { cols: 2, rows: 2, spans: [1, 1, 2] };
+    case 4:
+      return { cols: 2, rows: 2, spans: [1, 1, 1, 1] };
+    case 5:
+      // 3 on top (each 2 of 6 tracks), 2 below (each 3 of 6 tracks).
+      return { cols: 6, rows: 2, spans: [2, 2, 2, 3, 3] };
+    case 6:
+      return { cols: 3, rows: 2, spans: [1, 1, 1, 1, 1, 1] };
+    default:
+      // 7, 8, 9 → fill a 3×3 grid left-to-right.
+      return { cols: 3, rows: 3, spans: Array(n).fill(1) };
+  }
+}
+
+/**
+ * The next "Terminal N" number for a project: the lowest positive integer not
+ * already used by an existing (un-renamed) terminal in that project.
+ */
+function nextTerminalIndex(shells: ShellSession[], project: ShellProject): number {
+  const used = new Set<number>();
+  for (const sh of shells) {
+    if (sh.projectPath !== project.path) continue;
+    const m = /^Terminal (\d+)$/.exec(sh.title);
+    if (m) used.add(Number(m[1]));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+
+function createShellSession(project: ShellProject, index: number): ShellSession {
   return {
-    id: `shell:${projectId}:${index}:${Date.now()}`,
+    id: `shell:${project.id}:${index}:${Date.now()}`,
     title: `Terminal ${index}`,
+    projectId: project.id,
+    projectPath: project.path,
+    projectName: project.name,
   };
 }
 
@@ -70,13 +224,16 @@ const ShellTerminalInstance = forwardRef<ShellTerminalInstanceHandle, {
   shellId: string;
   projectPath: string;
   isActive: boolean;
+  /** Whether this instance is currently tiled in the grid. WebGL is only loaded
+   *  for shown panes so a 9-pane grid doesn't exhaust the browser's WebGL context budget. */
+  webgl: boolean;
   themeVariant: ThemeVariant;
   terminalFontSize: TerminalFontSize;
   monoFontFamily: FontFamily;
   onReady?: () => void;
 }>(
   function ShellTerminalInstance(
-    { shellId, projectPath, isActive, themeVariant, terminalFontSize, monoFontFamily, onReady },
+    { shellId, projectPath, isActive, webgl, themeVariant, terminalFontSize, monoFontFamily, onReady },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -124,7 +281,6 @@ const ShellTerminalInstance = forwardRef<ShellTerminalInstanceHandle, {
       const disposeCharSizeOverride = applyDomCharSizeOverride(term);
       const disposeScrollbarAutoHide = attachTerminalScrollbarAutoHide(term, container);
       const disposeInputFix = attachMacWebKitShiftInputFix(term);
-      const webglHandle = loadWebglAddon(term);
       const writer = createSmartWriter(term);
       const disposeMacWebKitGuard = attachMacWebKitTerminalGuard({ term, container, writer });
 
@@ -224,7 +380,6 @@ const ShellTerminalInstance = forwardRef<ShellTerminalInstanceHandle, {
         terminalRef.current = null;
         fitAddonRef.current = null;
         disposeCharSizeOverride();
-        webglHandle.dispose();
         disposeScrollbarAutoHide();
         disposeMacWebKitGuard();
         disposeInputFix();
@@ -232,6 +387,17 @@ const ShellTerminalInstance = forwardRef<ShellTerminalInstanceHandle, {
         invoke("kill_shell", { shellId }).catch(() => {});
       };
     }, [shellId, projectPath]);
+
+    // Load the WebGL renderer only while this pane is tiled. Browsers cap WebGL
+    // contexts (~8–16/page), so a full 3×3 grid plus other terminals could exhaust
+    // them; non-shown panes fall back to xterm's DOM renderer until shown again.
+    useEffect(() => {
+      if (!webgl) return;
+      const term = terminalRef.current;
+      if (!term) return;
+      const handle = loadWebglAddon(term);
+      return () => handle.dispose();
+    }, [webgl]);
 
     useEffect(() => {
       if (!isActive) return;
@@ -342,6 +508,8 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
     {
       projectPath,
       projectId,
+      projectName,
+      projects,
       isActive = true,
       onClose,
       themeVariant,
@@ -355,12 +523,17 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
     ref,
   ) {
     const { t } = useI18n();
+
+    const currentProject: ShellProject = { id: projectId, name: projectName, path: projectPath };
+
     const initialShellRef = useRef<ShellSession | null>(null);
     if (!initialShellRef.current) {
-      initialShellRef.current = createShellSession(projectId, 1);
+      initialShellRef.current = createShellSession(
+        currentProject,
+        nextTerminalIndex([], currentProject),
+      );
     }
 
-    const nextShellIndexRef = useRef(2);
     const shellRefs = useRef<Record<string, ShellTerminalInstanceHandle | null>>({});
     const [shells, setShells] = useState<ShellSession[]>(() => [initialShellRef.current!]);
     const [activeShellId, setActiveShellId] = useState<string | null>(() => initialShellRef.current!.id);
@@ -369,6 +542,7 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
       () => new Set([initialShellRef.current!.id]),
     );
     const [editingShellId, setEditingShellId] = useState<string | null>(null);
+    const [addOpen, setAddOpen] = useState(false);
     const [editTitle, setEditTitle] = useState("");
 
     // Single-select a terminal (plain click): show only it.
@@ -377,13 +551,14 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
       setActiveShellId(shellId);
     }, []);
 
-    // Toggle whether a terminal participates in the side-by-side display (split). Removing the last one isn't allowed.
+    // Toggle whether a terminal participates in the grid. Removing the last one
+    // isn't allowed, and the grid tiles at most MAX_GRID_PANES at once.
     const toggleShown = useCallback((shellId: string) => {
       setShownIds((prev) => {
         const next = new Set(prev);
         if (next.has(shellId)) {
           if (next.size > 1) next.delete(shellId);
-        } else {
+        } else if (next.size < MAX_GRID_PANES) {
           next.add(shellId);
         }
         return next;
@@ -399,6 +574,11 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
     }, []);
     const activeShellIdRef = useRef(activeShellId);
     activeShellIdRef.current = activeShellId;
+    // Refs let the imperative handle reach the latest split state / layout fn
+    // without rebuilding the handle on every render.
+    const shownSizeRef = useRef(shownIds.size);
+    shownSizeRef.current = shownIds.size;
+    const applyGridLayoutRef = useRef<(count: number) => void>(() => {});
 
     useImperativeHandle(
       ref,
@@ -408,16 +588,67 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
           if (!currentShellId) return;
           shellRefs.current[currentShellId]?.sendCommand(cmd);
         },
+        toggleSplit: () => {
+          applyGridLayoutRef.current(shownSizeRef.current > 1 ? 1 : 2);
+        },
       }),
       [],
     );
 
-    const handleAddShell = useCallback(() => {
-      const nextShell = createShellSession(projectId, nextShellIndexRef.current++);
-      setShells((prev) => [...prev, nextShell]);
-      setActiveShellId(nextShell.id);
-      setShownIds(new Set([nextShell.id]));
-    }, [projectId]);
+    const handleAddShell = useCallback(
+      (project: ShellProject) => {
+        const nextShell = createShellSession(project, nextTerminalIndex(shells, project));
+        setShells((prev) => [...prev, nextShell]);
+        setActiveShellId(nextShell.id);
+        // Grow the grid by adding the new terminal to the tiled set (up to the cap);
+        // once full, the terminal is added to the list but not auto-tiled.
+        setShownIds((prev) =>
+          prev.size < MAX_GRID_PANES ? new Set(prev).add(nextShell.id) : new Set([nextShell.id]),
+        );
+      },
+      [shells],
+    );
+
+    // Apply a preset grid: ensure at least `count` terminals exist, then tile the
+    // first `count` of them. Backs the header grid selector and is restored on mount.
+    const applyGridLayout = useCallback(
+      (count: number) => {
+        const clamped = Math.max(1, Math.min(MAX_GRID_PANES, count));
+        const next = [...shells];
+        while (next.length < clamped) {
+          next.push(createShellSession(currentProject, nextTerminalIndex(next, currentProject)));
+        }
+        const shownList = next.slice(0, clamped);
+        const shownSet = new Set(shownList.map((sh) => sh.id));
+        if (next.length !== shells.length) setShells(next);
+        setShownIds(shownSet);
+        setActiveShellId((cur) => (cur && shownSet.has(cur) ? cur : shownList[0]!.id));
+        try {
+          localStorage.setItem(GRID_LAYOUT_LS_KEY, String(clamped));
+        } catch {
+          /* ignore storage failures */
+        }
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [shells, currentProject.id, currentProject.name, currentProject.path],
+    );
+    applyGridLayoutRef.current = applyGridLayout;
+
+    // Restore the last-used grid preset once, after the initial shell is set up.
+    const didRestoreGridRef = useRef(false);
+    useEffect(() => {
+      if (didRestoreGridRef.current) return;
+      didRestoreGridRef.current = true;
+      let saved = 1;
+      try {
+        saved = Number(localStorage.getItem(GRID_LAYOUT_LS_KEY));
+      } catch {
+        /* ignore storage failures */
+      }
+      if (Number.isFinite(saved) && saved > 1) {
+        applyGridLayout(saved);
+      }
+    }, [applyGridLayout]);
 
     const handleCloseShell = useCallback(
       (shellId: string) => {
@@ -448,6 +679,32 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
         }
       },
       [activeShellId, onClose, shells],
+    );
+
+    const gridSpec = gridSpecFor(shownIds.size);
+    // Ordered ids of the shown panes, so each can be assigned its column span.
+    const shownOrder = shells.filter((sh) => shownIds.has(sh.id)).map((sh) => sh.id);
+
+    // Projects offered in the "add terminal" picker: the current project first, then
+    // any others, de-duplicated by path (the canonical project identity — the fill
+    // panel passes a task id as projectId, so id-based dedup would double-list it).
+    const pickerProjects = useMemo<ShellProject[]>(() => {
+      const seen = new Set<string>();
+      const list: ShellProject[] = [];
+      for (const p of [currentProject, ...(projects ?? [])]) {
+        if (p && p.path && !seen.has(p.path)) {
+          seen.add(p.path);
+          list.push(p);
+        }
+      }
+      return list;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentProject.id, currentProject.name, currentProject.path, projects]);
+
+    // Whether terminals span more than one project (drives showing project labels).
+    const multiProject = useMemo(
+      () => new Set(shells.map((sh) => sh.projectPath)).size > 1,
+      [shells],
     );
 
     return (
@@ -498,6 +755,45 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
             {t("terminal.title")}
           </span>
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{shells.length}</span>
+          <div
+            role="group"
+            aria-label={t("terminal.splitGrid")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              border: "1px solid var(--border-dim)",
+              borderRadius: 6,
+              padding: 1,
+              background: "var(--bg-input)",
+            }}
+          >
+            {GRID_PRESETS.map(({ count, Icon }) => {
+              const active = shownIds.size === count;
+              return (
+                <button
+                  key={count}
+                  onClick={() => applyGridLayout(count)}
+                  title={count === 1 ? t("terminal.gridSingle") : t("terminal.gridPanes", { count })}
+                  aria-pressed={active}
+                  style={{
+                    width: 22,
+                    height: 20,
+                    borderRadius: 4,
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: active ? "var(--bg-hover)" : "transparent",
+                    color: active ? "var(--control-active-fg)" : "var(--text-hint)",
+                  }}
+                >
+                  <Icon size={13} />
+                </button>
+              );
+            })}
+          </div>
           <button
             onClick={onClose}
             title={t("terminal.closeTerminals")}
@@ -516,38 +812,107 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
           </button>
         </div>
         <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-          {/* Terminals area. In split mode every shell tiles side-by-side; otherwise
-              only the active shell pane has width (instances stay mounted either way). */}
-          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex" }}>
-            {shells.map((shell, i) => {
+          {/* Terminals area. Shown shells tile in a rows×cols grid derived from how
+              many are shown; non-shown instances stay mounted (display:none) so their
+              scrollback and PTY survive being toggled out of the grid. */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
+              display: "grid",
+              gridTemplateColumns: `repeat(${gridSpec.cols}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${gridSpec.rows}, minmax(0, 1fr))`,
+              gridAutoFlow: "row dense",
+              gap: shownIds.size > 1 ? 1 : 0,
+              background: shownIds.size > 1 ? "var(--border-dim)" : undefined,
+            }}
+          >
+            {shells.map((shell) => {
               const shown = shownIds.has(shell.id);
-              const multi = shownIds.size > 1;
+              const active = activeShellId === shell.id;
+              const shownIndex = shownOrder.indexOf(shell.id);
+              const span = shownIndex >= 0 ? gridSpec.spans[shownIndex] ?? 1 : 1;
               return (
                 <div
                   key={shell.id}
                   onMouseDown={() => setActiveShellId(shell.id)}
                   style={{
-                    flex: shown ? 1 : 0,
-                    width: shown ? undefined : 0,
+                    display: shown ? "flex" : "none",
+                    flexDirection: "column",
+                    gridColumn: `span ${span}`,
                     minWidth: 0,
                     minHeight: 0,
                     position: "relative",
                     overflow: "hidden",
-                    borderLeft: multi && i > 0 ? "1px solid var(--border-dim)" : "none",
+                    background: themeFor(themeVariant).background,
+                    outline:
+                      active && shownIds.size > 1 ? "1px solid var(--accent)" : "none",
+                    outlineOffset: -1,
                   }}
                 >
-                  <ShellTerminalInstance
-                    ref={(instance) => {
-                      shellRefs.current[shell.id] = instance;
+                  {/* Per-pane header: project + terminal name, so it's always clear
+                      which project/terminal a pane is. */}
+                  <div
+                    style={{
+                      flexShrink: 0,
+                      height: 22,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      padding: "0 8px",
+                      background: active ? "var(--bg-hover)" : "var(--bg-sidebar)",
+                      borderBottom: "1px solid var(--border-dim)",
+                      fontSize: 11,
+                      minWidth: 0,
                     }}
-                    shellId={shell.id}
-                    projectPath={projectPath}
-                    isActive={isActive && shown}
-                    themeVariant={themeVariant}
-                    terminalFontSize={terminalFontSize}
-                    monoFontFamily={monoFontFamily}
-                    onReady={onReady}
-                  />
+                  >
+                    <Folder
+                      size={11}
+                      color="var(--text-hint)"
+                      style={{ flexShrink: 0 }}
+                    />
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        maxWidth: "55%",
+                        fontWeight: 600,
+                        color: "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {shell.projectName}
+                    </span>
+                    <span style={{ color: "var(--text-hint)", flexShrink: 0 }}>·</span>
+                    <span
+                      style={{
+                        minWidth: 0,
+                        color: active ? "var(--text-primary)" : "var(--text-secondary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {shell.title}
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+                    <ShellTerminalInstance
+                      ref={(instance) => {
+                        shellRefs.current[shell.id] = instance;
+                      }}
+                      shellId={shell.id}
+                      projectPath={shell.projectPath}
+                      isActive={isActive && shown}
+                      webgl={shown}
+                      themeVariant={themeVariant}
+                      terminalFontSize={terminalFontSize}
+                      monoFontFamily={monoFontFamily}
+                      onReady={onReady}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -575,24 +940,79 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
                 borderBottom: "1px solid var(--border-dim)",
               }}
             >
-              <button
-                onClick={handleAddShell}
-                title={t("terminal.newTerminal")}
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 4,
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Plus size={13} />
-              </button>
+              {pickerProjects.length <= 1 ? (
+                <button
+                  onClick={() => handleAddShell(currentProject)}
+                  title={t("terminal.newTerminal")}
+                  style={addShellBtnStyle}
+                >
+                  <Plus size={13} />
+                </button>
+              ) : (
+                <Popover.Root open={addOpen} onOpenChange={setAddOpen}>
+                  <Popover.Trigger asChild>
+                    <button
+                      title={t("terminal.newTerminal")}
+                      aria-label={t("terminal.chooseProject")}
+                      style={addShellBtnStyle}
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </Popover.Trigger>
+                  <Popover.Portal>
+                    <Popover.Content
+                      align="end"
+                      sideOffset={6}
+                      style={projectMenuContentStyle}
+                    >
+                      <div style={projectMenuHeaderStyle}>{t("terminal.chooseProject")}</div>
+                      {pickerProjects.map((p) => {
+                        const isCurrent = p.path === currentProject.path;
+                        return (
+                          <button
+                            key={p.path}
+                            style={projectMenuItemStyle}
+                            onClick={() => {
+                              handleAddShell(p);
+                              setAddOpen(false);
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = "var(--bg-hover)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                            }}
+                          >
+                            <Folder
+                              size={13}
+                              color="var(--text-muted)"
+                              style={{ flexShrink: 0 }}
+                            />
+                            <span
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {p.name}
+                            </span>
+                            {isCurrent && (
+                              <Check
+                                size={13}
+                                color="var(--accent)"
+                                style={{ flexShrink: 0 }}
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </Popover.Content>
+                  </Popover.Portal>
+                </Popover.Root>
+              )}
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
               {shells.map((shell) => {
@@ -604,8 +1024,8 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
                     key={shell.id}
                     onClick={() => showOnly(shell.id)}
                     style={{
-                      height: 28,
-                      padding: "0 4px 0 8px",
+                      minHeight: 28,
+                      padding: "3px 4px 3px 8px",
                       borderLeft: selected
                         ? "2px solid var(--control-active-fg)"
                         : inSplit && multi
@@ -657,7 +1077,11 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
                       />
                     ) : (
                       <div
-                        title="Double-click to rename"
+                        title={
+                          multiProject
+                            ? `${shell.projectName} · ${shell.title} (double-click to rename)`
+                            : "Double-click to rename"
+                        }
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           setEditTitle(shell.title);
@@ -666,15 +1090,38 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
                         style={{
                           flex: 1,
                           minWidth: 0,
-                          fontSize: 11.5,
-                          fontWeight: selected ? 600 : 500,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          color: selected ? "var(--text-primary)" : "var(--text-secondary)",
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "center",
+                          gap: 1,
                         }}
                       >
-                        {shell.title}
+                        {multiProject && (
+                          <span
+                            style={{
+                              fontSize: 9.5,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              color: "var(--text-hint)",
+                            }}
+                          >
+                            {shell.projectName}
+                          </span>
+                        )}
+                        <span
+                          style={{
+                            fontSize: 11.5,
+                            fontWeight: selected ? 600 : 500,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            color: selected ? "var(--text-primary)" : "var(--text-secondary)",
+                          }}
+                        >
+                          {shell.title}
+                        </span>
                       </div>
                     )}
                     <button

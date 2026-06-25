@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Settings, Moon, Sun } from "lucide-react";
+import { Settings, Moon, Sun, SplitSquareHorizontal } from "lucide-react";
 import type { ThemeMode, ThemeVariant, TerminalFontSize, TaskDisplayWindow, FontFamily } from "../types";
 import { AppSettingsDialog } from "./AppSettingsDialog";
 import { OPEN_APP_SETTINGS_EVENT } from "./app-settings/types";
@@ -14,6 +14,7 @@ export function SidebarFooterActions({
   systemPrefersDark,
   onThemeModeChange,
   onToggleTheme,
+  onToggleSplit,
   terminalFontSize,
   onTerminalFontSizeChange,
   taskDisplayWindow,
@@ -32,6 +33,7 @@ export function SidebarFooterActions({
   systemPrefersDark: boolean;
   onThemeModeChange: (mode: ThemeMode) => void;
   onToggleTheme: () => void;
+  onToggleSplit?: () => void;
   terminalFontSize: TerminalFontSize;
   onTerminalFontSizeChange: (size: TerminalFontSize) => void;
   taskDisplayWindow: TaskDisplayWindow;
@@ -65,6 +67,15 @@ export function SidebarFooterActions({
         >
           <Settings size={14} strokeWidth={1.6} color="var(--text-hint)" />
         </button>
+        {onToggleSplit && (
+          <button
+            style={s.sidebarIconBtn}
+            title={t("terminal.splitView")}
+            onClick={onToggleSplit}
+          >
+            <SplitSquareHorizontal size={14} strokeWidth={1.8} color="var(--text-hint)" />
+          </button>
+        )}
         <button
           style={s.sidebarIconBtn}
           title={isDark ? t("theme.switchToLight") : t("theme.switchToDark")}

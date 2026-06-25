@@ -90,6 +90,7 @@ export function ProjectSidebar({
   onSelectActiveTask,
   onOpenTaskInProject,
   onNewTerminal,
+  onToggleSplit,
   onNewAgent,
   onDeleteTask,
   onToggleTaskStar,
@@ -132,6 +133,7 @@ export function ProjectSidebar({
   onSelectActiveTask: (taskId: string) => void;
   onOpenTaskInProject: (projectId: string, taskId: string) => void;
   onNewTerminal: (projectId: string) => void;
+  onToggleSplit: () => void;
   onNewAgent: (projectId: string) => void;
   onDeleteTask: (id: string) => void;
   onToggleTaskStar: (id: string) => void;
@@ -695,6 +697,7 @@ export function ProjectSidebar({
           systemPrefersDark={systemPrefersDark}
           onThemeModeChange={onThemeModeChange}
           onToggleTheme={onToggleTheme}
+          onToggleSplit={onToggleSplit}
           terminalFontSize={terminalFontSize}
           onTerminalFontSizeChange={onTerminalFontSizeChange}
           taskDisplayWindow={taskDisplayWindow}
