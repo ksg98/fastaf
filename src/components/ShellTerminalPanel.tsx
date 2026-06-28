@@ -45,6 +45,7 @@ import {
 } from "lucide-react";
 import * as Popover from "@radix-ui/react-popover";
 import { useI18n } from "../i18n";
+import { registerTerminalCloser } from "../terminalRegistry";
 import "@xterm/xterm/css/xterm.css";
 
 interface ShellOutputEvent {
@@ -99,6 +100,24 @@ interface Props {
 
 /** Max terminals that can tile at once (a 3×3 grid). */
 const MAX_GRID_PANES = 9;
+
+/** Hard cap on how many terminals a project panel can hold at once. Matches the
+ *  3×3 grid so the whole set can tile; past this, adding is blocked with a notice
+ *  rather than silently collapsing the grid back to a single pane. */
+const MAX_TERMINALS = 9;
+
+/** How long the "limit reached" notice stays up after a blocked add (ms). */
+const LIMIT_NOTICE_MS = 2500;
+
+const TERMINAL_SIDEBAR_LS_KEY = "fastaf:terminalSidebarWidth";
+const TERMINAL_SIDEBAR_MIN = 88;
+const TERMINAL_SIDEBAR_MAX = 360;
+const TERMINAL_SIDEBAR_DEFAULT = 104;
+
+function clampSidebarWidth(value: number): number {
+  if (!Number.isFinite(value)) return TERMINAL_SIDEBAR_DEFAULT;
+  return Math.min(TERMINAL_SIDEBAR_MAX, Math.max(TERMINAL_SIDEBAR_MIN, Math.round(value)));
+}
 
 /** Preset pane counts offered by the grid selector. */
 const GRID_PRESETS: { count: number; Icon: typeof Square }[] = [
@@ -544,6 +563,57 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
     const [editingShellId, setEditingShellId] = useState<string | null>(null);
     const [addOpen, setAddOpen] = useState(false);
     const [editTitle, setEditTitle] = useState("");
+    // Briefly shown in the header when an add is blocked by the terminal cap.
+    const [limitReached, setLimitReached] = useState(false);
+    const limitTimerRef = useRef<number | null>(null);
+    const flagLimitReached = useCallback(() => {
+      setLimitReached(true);
+      if (limitTimerRef.current !== null) window.clearTimeout(limitTimerRef.current);
+      limitTimerRef.current = window.setTimeout(() => setLimitReached(false), LIMIT_NOTICE_MS);
+    }, []);
+    useEffect(
+      () => () => {
+        if (limitTimerRef.current !== null) window.clearTimeout(limitTimerRef.current);
+      },
+      [],
+    );
+
+    // The terminal list sidebar is resizable (drag its left edge); width persists.
+    const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+      try {
+        const saved = Number(localStorage.getItem(TERMINAL_SIDEBAR_LS_KEY));
+        if (Number.isFinite(saved) && saved > 0) return clampSidebarWidth(saved);
+      } catch {
+        /* ignore storage failures */
+      }
+      return TERMINAL_SIDEBAR_DEFAULT;
+    });
+    const handleSidebarResizeStart = useCallback(
+      (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startWidth = sidebarWidth;
+        const onMove = (move: MouseEvent) => {
+          // Dragging left (smaller clientX) widens the right-hand sidebar.
+          setSidebarWidth(clampSidebarWidth(startWidth + (startX - move.clientX)));
+        };
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+          setSidebarWidth((w) => {
+            try {
+              localStorage.setItem(TERMINAL_SIDEBAR_LS_KEY, String(w));
+            } catch {
+              /* ignore storage failures */
+            }
+            return w;
+          });
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      },
+      [sidebarWidth],
+    );
 
     // Single-select a terminal (plain click): show only it.
     const showOnly = useCallback((shellId: string) => {
@@ -597,6 +667,12 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
 
     const handleAddShell = useCallback(
       (project: ShellProject) => {
+        // Hard cap: past MAX_TERMINALS, surface a notice instead of collapsing the
+        // grid back to a single new pane (which read as "numbering restarted").
+        if (shells.length >= MAX_TERMINALS) {
+          flagLimitReached();
+          return;
+        }
         const nextShell = createShellSession(project, nextTerminalIndex(shells, project));
         setShells((prev) => [...prev, nextShell]);
         setActiveShellId(nextShell.id);
@@ -606,7 +682,7 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
           prev.size < MAX_GRID_PANES ? new Set(prev).add(nextShell.id) : new Set([nextShell.id]),
         );
       },
-      [shells],
+      [shells, flagLimitReached],
     );
 
     // Apply a preset grid: ensure at least `count` terminals exist, then tile the
@@ -681,6 +757,27 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
       [activeShellId, onClose, shells],
     );
 
+    // Cmd+W: close the terminal tab the user is focused in (see terminalRegistry).
+    // The closer only acts when one of this panel's xterm hosts holds focus, so
+    // Cmd+W elsewhere (or in another panel) is left to the window-stow fallback.
+    const panelRootRef = useRef<HTMLDivElement>(null);
+    const handleCloseShellRef = useRef(handleCloseShell);
+    handleCloseShellRef.current = handleCloseShell;
+    useEffect(
+      () =>
+        registerTerminalCloser(() => {
+          const root = panelRootRef.current;
+          const focused = document.activeElement;
+          if (!root || !focused || !root.contains(focused)) return false;
+          if (!focused.closest(".fastaf-shell-xterm-host")) return false;
+          const id = activeShellIdRef.current;
+          if (!id) return false;
+          handleCloseShellRef.current(id);
+          return true;
+        }),
+      [],
+    );
+
     const gridSpec = gridSpecFor(shownIds.size);
     // Ordered ids of the shown panes, so each can be assigned its column span.
     const shownOrder = shells.filter((sh) => shownIds.has(sh.id)).map((sh) => sh.id);
@@ -709,6 +806,7 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
 
     return (
       <div
+        ref={panelRootRef}
         style={
           fill
             ? {
@@ -754,7 +852,17 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
           <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", flex: 1 }}>
             {t("terminal.title")}
           </span>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{shells.length}</span>
+          {limitReached && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent)" }}>
+              {t("terminal.limitReached")}
+            </span>
+          )}
+          <span
+            style={{ fontSize: 11, color: limitReached ? "var(--accent)" : "var(--text-muted)" }}
+            title={t("terminal.limitReached")}
+          >
+            {shells.length}/{MAX_TERMINALS}
+          </span>
           <div
             role="group"
             aria-label={t("terminal.splitGrid")}
@@ -917,9 +1025,21 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
               );
             })}
           </div>
+          {/* Drag handle to resize the terminal list sidebar (issue: names were
+              truncated in the fixed 104px column). */}
+          <div
+            onMouseDown={handleSidebarResizeStart}
+            title={t("terminal.resizeList")}
+            style={{
+              width: 5,
+              flexShrink: 0,
+              cursor: "col-resize",
+              background: "transparent",
+            }}
+          />
           <div
             style={{
-              width: 104,
+              width: sidebarWidth,
               flexShrink: 0,
               borderLeft: "1px solid var(--border-dim)",
               background: "var(--bg-sidebar)",
@@ -1096,20 +1216,20 @@ export const ShellTerminalPanel = forwardRef<ShellTerminalPanelHandle, Props>(
                           gap: 1,
                         }}
                       >
-                        {multiProject && (
-                          <span
-                            style={{
-                              fontSize: 9.5,
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              color: "var(--text-hint)",
-                            }}
-                          >
-                            {shell.projectName}
-                          </span>
-                        )}
+                        {/* Always label the repo so a terminal reads as
+                            "<repo> / Terminal N", not a bare "Terminal 1". */}
+                        <span
+                          style={{
+                            fontSize: 9.5,
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            color: "var(--text-hint)",
+                          }}
+                        >
+                          {shell.projectName}
+                        </span>
                         <span
                           style={{
                             fontSize: 11.5,

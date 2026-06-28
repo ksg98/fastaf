@@ -889,6 +889,20 @@ pub async fn resume_task(
 
     let launch = crate::app_settings::get_agent_launch_spec(&agent);
     let agent_bin = launch.program.clone();
+    let is_codex = agent == "codex";
+
+    // Resume in the directory that actually owns the session: `claude --resume` / `codex resume` look
+    // the session up relative to the cwd, so resuming from the wrong directory makes the agent fail to
+    // start. Fall back to the project path when the session file can't be located.
+    let resume_cwd = tokio::task::spawn_blocking({
+        let session_id = session_id.clone();
+        move || crate::session::resolve_session_cwd(&session_id, is_codex)
+    })
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| project_path.clone());
+
     // When the hook is trusted, session discovery/status is driven by event_watcher and the polling
     // watcher is skipped; otherwise fall back, and don't inject the FASTAF_* guard variables, to
     // avoid an older agent with an installed hook reporting in parallel with the polling path.
@@ -926,7 +940,7 @@ pub async fn resume_task(
         }
         c
     };
-    cmd.cwd(&project_path);
+    cmd.cwd(&resume_cwd);
     setup_env(&mut cmd);
     if use_hooks {
         setup_fastaf_env(&mut cmd, &task_id, &agent);
@@ -946,14 +960,13 @@ pub async fn resume_task(
         serde_json::json!({ "task_id": task_id, "status": "running" }),
     );
 
-    let is_codex = agent == "codex";
-
-    // On resume the session_id is known, so look up the file directly and start watching (skipped when the hook is trusted)
+    // On resume the session_id is known, so look up the file directly and start watching (skipped when
+    // the hook is trusted). Watch relative to the session's real cwd, which is where the file lives.
     if !use_hooks {
         spawn_resume_session_watcher(
             app.clone(),
             task_id.clone(),
-            project_path.clone(),
+            resume_cwd.clone(),
             session_id,
             is_codex,
         );

@@ -1,7 +1,7 @@
 {
   "name": "fastaf",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "An Agent-First Application For Vibe Coding",
   "author": "ksg98",
   "license": "GPL-3.0-only",

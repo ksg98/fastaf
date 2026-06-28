@@ -31,9 +31,14 @@ import { quoteFontName } from "./utils/fonts";
 import { WelcomePage } from "./components/WelcomePage";
 import { ProjectPage } from "./components/ProjectPage";
 import { AddProjectDialog } from "./components/AddProjectDialog";
+import {
+  ImportProjectsDialog,
+  type DiscoveredProject,
+} from "./components/ImportProjectsDialog";
 import { SKILL_HUB_CHANGED_EVENT } from "./components/app-settings/types";
 import { useToast } from "./components/Toast";
 import { isHideWindowShortcut, classifyZoomShortcut } from "./shortcuts";
+import { closeFocusedTerminal } from "./terminalRegistry";
 import { restoreZoom, zoomIn, zoomOut, zoomReset } from "./zoom";
 import { APP_PLATFORM } from "./platform";
 import { useTerminalManager } from "./hooks/useTerminalManager";
@@ -48,6 +53,23 @@ function deriveProjectName(path: string): string {
 
   const parts = trimmed.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/**
+ * The next "Terminal N" label for a project: the lowest positive integer not already used by an
+ * existing terminal in that project. Keeps the left-sidebar terminals named "Terminal 1", "Terminal 2"
+ * instead of an opaque "terminal-<timestamp>".
+ */
+function nextTerminalName(tasks: Task[], projectId: string): string {
+  const used = new Set<number>();
+  for (const task of tasks) {
+    if (task.projectId !== projectId) continue;
+    const m = /^Terminal (\d+)$/.exec((task.name ?? "").trim());
+    if (m) used.add(Number(m[1]));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Terminal ${n}`;
 }
 
 function persistProjects(
@@ -218,6 +240,7 @@ function App() {
   const [skillHubConfig, setSkillHubConfig] = useState<SkillHubConfig | null>(null);
   const [hubMode, setHubMode] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
+  const [showImportProjects, setShowImportProjects] = useState(false);
   const [addProjectAnchor, setAddProjectAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   // Unified sidebar: the expanded project groups (showing their session list).
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(() => new Set());
@@ -320,14 +343,18 @@ function App() {
   }, [themeMode]);
 
   useEffect(() => {
-    // Cmd+W stows the window (hide to the Dock); macOS only: after hiding, clicking the Dock icon
-    // brings it back (see lib.rs Reopen). Other platforms have no Dock/tray bring-back entry, so the
-    // window would be lost after hiding — hence not enabled. Intercept in the capture phase, ahead of
-    // xterm and other components' keydown handling, so it isn't swallowed.
+    // Cmd+W closes the focused terminal tab; with no terminal focused it stows the window (hide to
+    // the Dock); macOS only: after hiding, clicking the Dock icon brings it back (see lib.rs Reopen).
+    // Other platforms have no Dock/tray bring-back entry, so the window would be lost after hiding —
+    // hence not enabled. Intercept in the capture phase, ahead of xterm and other components' keydown
+    // handling, so it isn't swallowed.
     if (APP_PLATFORM !== "macos") return;
     function handleHideWindow(event: KeyboardEvent) {
       if (!isHideWindowShortcut(event, APP_PLATFORM)) return;
       event.preventDefault();
+      // Cmd+W closes the terminal tab the user is focused in (the natural expectation);
+      // only when no terminal is focused does it fall through to stowing the window.
+      if (closeFocusedTerminal()) return;
       // Go through the backend command to stow the window: in fullscreen we must exit fullscreen first
       // before hiding, otherwise it leaves behind a black empty Space.
       invoke("hide_main_window").catch(console.error);
@@ -521,6 +548,78 @@ function App() {
     registerProjectByPath(selected as string);
   }
 
+  // Migration import: turn discovered Claude Code / Codex projects (and optionally
+  // their chat sessions) into FastAF projects + tasks, reusing the normal persist path.
+  function handleImportProjects(selected: DiscoveredProject[], includeChats: boolean) {
+    if (selected.length === 0) {
+      setShowImportProjects(false);
+      return;
+    }
+    const now = Date.now();
+    let importedProjects = 0;
+
+    // Resolve each selected path to a project id, creating projects that don't exist yet.
+    const nextProjects = [...projects];
+    const pathToId = new Map(nextProjects.map((p) => [p.path, p.id] as const));
+    selected.forEach((disc, i) => {
+      if (pathToId.has(disc.path)) return;
+      const project: Project = {
+        id: `import-${now}-${i}`,
+        name: disc.name || deriveProjectName(disc.path),
+        path: disc.path,
+        lastOpenedAt: now,
+      };
+      nextProjects.unshift(project);
+      pathToId.set(disc.path, project.id);
+      importedProjects += 1;
+    });
+
+    // Build chat tasks, deduped by session id against tasks already loaded.
+    const seenTaskIds = new Set(tasks.map((task) => task.id));
+    const newTasks: Task[] = [];
+    if (includeChats) {
+      for (const disc of selected) {
+        const projectId = pathToId.get(disc.path)!;
+        for (const session of disc.sessions) {
+          if (seenTaskIds.has(session.id)) continue;
+          seenTaskIds.add(session.id);
+          newTasks.push({
+            id: session.id,
+            projectId,
+            kind: "agent",
+            prompt: session.title || t("import.untitledSession"),
+            name: session.title || undefined,
+            agent: session.agent,
+            permissionMode: "ask",
+            status: "done",
+            createdAt: session.modifiedMs || now,
+            ...(session.agent === "codex"
+              ? { codexSessionId: session.id, codexSessionPath: session.path }
+              : { claudeSessionId: session.id, claudeSessionPath: session.path }),
+          });
+        }
+      }
+    }
+
+    if (importedProjects > 0) {
+      setProjects(nextProjects);
+      persistProjects(nextProjects, showToast, formatSaveProjectsError);
+    }
+    if (newTasks.length > 0) {
+      const merged = [...newTasks, ...tasks];
+      setTasks(merged);
+      new Set(newTasks.map((task) => task.projectId)).forEach((projectId) => {
+        persistProjectTasks(projectId, merged, showToast, formatSaveTasksError);
+      });
+    }
+
+    setShowImportProjects(false);
+    showToast(
+      t("toast.importDone", { projects: importedProjects, chats: newTasks.length }),
+      "success",
+    );
+  }
+
   // The "+" entry: pop up the "add project" menu at the click position (anchored like a context menu, not a centered dialog).
   function handleOpen(anchor?: { x: number; y: number }) {
     if (anchor) setAddProjectAnchor(anchor);
@@ -569,7 +668,7 @@ function App() {
       projectId,
       kind: "shell",
       prompt: "",
-      name: `terminal-${taskId}`,
+      name: nextTerminalName(tasks, projectId),
       agent: "claude",
       permissionMode: "ask",
       // Neutral until a hook reports activity — a plain idle terminal must not show the
@@ -679,7 +778,11 @@ function App() {
       projectId: project.id,
       kind,
       prompt,
-      name: prompt ? undefined : kind === "shell" ? `terminal-${taskId}` : `task-${taskId}`,
+      name: prompt
+        ? undefined
+        : kind === "shell"
+          ? nextTerminalName(tasks, project.id)
+          : `task-${taskId}`,
       agent,
       permissionMode,
       status: immediate ? "pending" : "todo",
@@ -1399,6 +1502,16 @@ function App() {
             setShowAddProject(false);
             registerProjectByPath(path);
           }}
+          onImport={() => {
+            setShowAddProject(false);
+            setShowImportProjects(true);
+          }}
+        />
+      )}
+      {showImportProjects && (
+        <ImportProjectsDialog
+          onClose={() => setShowImportProjects(false)}
+          onImport={handleImportProjects}
         />
       )}
     </div>

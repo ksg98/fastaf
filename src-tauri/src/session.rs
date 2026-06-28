@@ -1203,6 +1203,70 @@ fn find_codex_session_file(session_id: &str, project_path: &str) -> Option<PathB
         .max_by_key(|p| session_modified_at(p))
 }
 
+/// Read the working directory a session was created in, by scanning its first lines for the `cwd`
+/// field (Claude: top-level `cwd`; Codex: `session_meta.payload.cwd`).
+fn read_session_cwd(path: &Path) -> Option<String> {
+    use std::io::BufRead;
+    let file = File::open(path).ok()?;
+    for line in BufReader::new(file).lines().map_while(Result::ok).take(50) {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        // Claude: cwd is a top-level field on every entry.
+        if let Some(cwd) = value.get("cwd").and_then(|v| v.as_str()) {
+            if !cwd.is_empty() {
+                return Some(cwd.to_string());
+            }
+        }
+        // Codex: cwd lives under the session_meta payload.
+        if value.get("type").and_then(|v| v.as_str()) == Some("session_meta") {
+            if let Some(cwd) = value
+                .get("payload")
+                .and_then(|p| p.get("cwd"))
+                .and_then(|v| v.as_str())
+            {
+                if !cwd.is_empty() {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Resolve the directory a session actually belongs to, searching globally by session id rather than
+/// assuming it lives under the current project. Used so resume runs the agent in the directory that
+/// owns the chat — otherwise `claude --resume` / `codex resume` can't find a session stored elsewhere
+/// (e.g. one created earlier under a parent folder) and the agent never starts.
+pub(crate) fn resolve_session_cwd(session_id: &str, is_codex: bool) -> Option<String> {
+    let home = crate::platform::home_dir()?;
+    if is_codex {
+        let suffix = format!("-{}.jsonl", session_id);
+        let mut files = Vec::new();
+        collect_session_files(&home.join(".codex").join("sessions"), &mut files);
+        let file = files
+            .into_iter()
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.ends_with(&suffix))
+                    .unwrap_or(false)
+            })
+            .max_by_key(|p| session_modified_at(p))?;
+        read_session_cwd(&file)
+    } else {
+        let projects = home.join(".claude").join("projects");
+        let entries = std::fs::read_dir(&projects).ok()?;
+        for entry in entries.flatten() {
+            let candidate = entry.path().join(format!("{}.jsonl", session_id));
+            if candidate.is_file() {
+                return read_session_cwd(&candidate);
+            }
+        }
+        None
+    }
+}
+
 // ── /status-based session discovery ──────────────────────────────────────────
 
 /// Extract the Session ID from Claude Code's `/status` output.

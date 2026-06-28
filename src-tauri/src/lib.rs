@@ -13,6 +13,7 @@ mod event_watcher;
 mod fs;
 mod git;
 mod hooks;
+mod import;
 mod platform;
 mod pty;
 mod session;
@@ -207,6 +208,7 @@ pub fn run() {
             storage::save_projects,
             storage::load_project_tasks,
             storage::save_project_tasks,
+            import::discover_importable_projects,
             app_settings::load_app_settings,
             app_settings::save_app_settings,
             app_settings::save_agent_paths,

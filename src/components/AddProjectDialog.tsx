@@ -2,7 +2,7 @@ import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, GitFork, Loader2, ChevronLeft } from "lucide-react";
+import { FolderOpen, GitFork, Loader2, ChevronLeft, Download } from "lucide-react";
 import { useToast } from "./Toast";
 import s from "../styles";
 
@@ -18,11 +18,13 @@ export function AddProjectDialog({
   onClose,
   onOpenFolder,
   onCloned,
+  onImport,
 }: {
   anchor: { x: number; y: number };
   onClose: () => void;
   onOpenFolder: () => void;
   onCloned: (path: string) => void;
+  onImport: () => void;
 }) {
   const { showToast } = useToast();
   const [mode, setMode] = useState<"choose" | "clone">("choose");
@@ -108,6 +110,11 @@ export function AddProjectDialog({
               icon={<GitFork size={15} />}
               title="Clone from GitHub…"
               onClick={() => setMode("clone")}
+            />
+            <MenuItem
+              icon={<Download size={15} />}
+              title="Import from Claude Code / Codex / superset.sh…"
+              onClick={onImport}
             />
           </>
         ) : (
