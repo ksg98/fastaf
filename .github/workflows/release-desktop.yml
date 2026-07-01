@@ -110,6 +110,11 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build ${{ matrix.name }}
+        env:
+          # Signs the updater artifacts (.sig) so the in-app auto-updater can verify them.
+          # The key is generated with an empty password (see docs), so the password is blank.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: pnpm tauri build --target ${{ matrix.target }} ${{ matrix.bundle_args }}
 
       - name: Upload build artifacts
@@ -123,6 +128,10 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.nsis.zip
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.nsis.zip.sig
 
   release:
     name: Create GitHub Release
@@ -132,11 +141,17 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
+
+      - name: Generate updater manifest (latest.json)
+        run: node scripts/updater/generate-latest-json.mjs release-artifacts "${GITHUB_REF_NAME}"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -99,6 +99,35 @@ fn hide_main_window(window: tauri::Window) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Check GitHub for a newer signed release and self-install it in the background. On success the
+/// update is staged and applied on the next launch; the user is notified rather than force-restarted.
+/// Any failure (offline, no newer release, signature mismatch) is ignored so startup is never blocked.
+#[cfg(not(debug_assertions))]
+fn spawn_update_check(handle: tauri::AppHandle) {
+    use tauri_plugin_updater::UpdaterExt;
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater) = handle.updater() else {
+            return;
+        };
+        if let Ok(Some(update)) = updater.check().await {
+            let version = update.version.clone();
+            if update
+                .download_and_install(|_chunk: usize, _total: Option<u64>| {}, || {})
+                .await
+                .is_ok()
+            {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = handle
+                    .notification()
+                    .builder()
+                    .title("FastAF updated")
+                    .body(format!("Version {version} installed — restart FastAF to apply."))
+                    .show();
+            }
+        }
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -113,6 +142,10 @@ pub fn run() {
             });
             // Start the hook event file watcher
             crate::event_watcher::start(app.handle().clone());
+            // Check for an app update in the background (release builds only) and self-install it,
+            // so users don't have to download and reinstall by hand.
+            #[cfg(not(debug_assertions))]
+            spawn_update_check(app.handle().clone());
             Ok(())
         })
         .manage(TaskManager {
@@ -141,6 +174,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             hide_main_window,
             pty::run_task,
